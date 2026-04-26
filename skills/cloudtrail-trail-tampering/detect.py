@@ -194,34 +194,48 @@ def fetch_events(client: "BaseClient", lookback_hours: int) -> list[dict]:
     return all_events
 
 
-def is_tampering_event(event: dict) -> bool:
+def is_tampering_event(event: dict, account_id: str) -> bool:
     """
     Determine if a CloudTrail event represents audit trail tampering.
 
     Args:
         event: CloudTrail event dict with 'EventName' and 'CloudTrailEvent' keys
+        account_id: AWS account ID to scope detection (12-digit string)
 
     Returns:
-        True if event is a tampering event, False otherwise
+        True if event is a tampering event AND from specified account, False otherwise
 
     Classification Rules:
-        - DeleteTrail: Always tampering
-        - StopLogging: Always tampering
+        - Account check: Event's userIdentity.accountId must match account_id
+        - DeleteTrail: Always tampering (if account matches)
+        - StopLogging: Always tampering (if account matches)
         - UpdateTrail: Tampering only if requestParameters.isLogging is False
         - PutBucketPublicAccessBlock: Tampering only if ALL FOUR protections are False
     """
-    event_name = event.get("EventName", "")
-
-    # Unconditional tampering events
-    if event_name in ("DeleteTrail", "StopLogging"):
-        return True
-
-    # Parse CloudTrailEvent JSON for detailed inspection
+    # Parse CloudTrailEvent JSON first to extract account ID
     cloud_trail_event_str = event.get("CloudTrailEvent", "{}")
     try:
         cloud_trail_event = json.loads(cloud_trail_event_str)
     except json.JSONDecodeError:
         return False
+
+    # Extract account ID from userIdentity and check for match
+    user_identity = cloud_trail_event.get("userIdentity", {})
+    event_account_id = user_identity.get("accountId")
+
+    # Return False if accountId field is missing from event
+    if event_account_id is None:
+        return False
+
+    # Account mismatch = not a finding for this account
+    if event_account_id != account_id:
+        return False
+
+    event_name = event.get("EventName", "")
+
+    # Unconditional tampering events (account already verified)
+    if event_name in ("DeleteTrail", "StopLogging"):
+        return True
 
     request_params = cloud_trail_event.get("requestParameters", {})
 
