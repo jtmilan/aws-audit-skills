@@ -9,10 +9,12 @@ from botocore.stub import Stubber
 
 from detect import (
     DRY_RUN_FIXTURES,
+    FIXTURE_ACCOUNT_ID,
     TARGET_EVENT_NAMES,
     extract_finding,
     fetch_events,
     is_tampering_event,
+    resolve_account_id,
 )
 
 
@@ -650,3 +652,60 @@ def test_target_event_names_constant():
     assert "UpdateTrail" in TARGET_EVENT_NAMES
     assert "PutBucketPublicAccessBlock" in TARGET_EVENT_NAMES
     assert len(TARGET_EVENT_NAMES) == 4
+
+
+# ============================================================================
+# Tests for FIXTURE_ACCOUNT_ID constant
+# ============================================================================
+
+
+def test_fixture_account_id_constant():
+    """Verify FIXTURE_ACCOUNT_ID is defined with expected placeholder value."""
+    assert FIXTURE_ACCOUNT_ID == "<account-id>"
+
+
+# ============================================================================
+# Tests for resolve_account_id function
+# ============================================================================
+
+
+def test_account_id_sts_fallback():
+    """Verify resolve_account_id uses STS fallback when explicit_id is None."""
+    sts_client = boto3.client("sts", region_name="us-east-1")
+    stubber = Stubber(sts_client)
+
+    stubber.add_response(
+        "get_caller_identity",
+        {
+            "UserId": "AIDAEXAMPLE",
+            "Account": "999999999999",
+            "Arn": "arn:aws:iam::999999999999:user/test-user"
+        },
+        expected_params={}
+    )
+
+    stubber.activate()
+    try:
+        result = resolve_account_id(sts_client, None)
+    finally:
+        stubber.deactivate()
+
+    assert result == "999999999999"
+    stubber.assert_no_pending_responses()
+
+
+def test_account_id_explicit_passthrough():
+    """Verify resolve_account_id returns explicit_id unchanged without STS call."""
+    sts_client = boto3.client("sts", region_name="us-east-1")
+    stubber = Stubber(sts_client)
+
+    # No stub responses added - STS should not be called
+    stubber.activate()
+    try:
+        result = resolve_account_id(sts_client, "111111111111")
+    finally:
+        stubber.deactivate()
+
+    assert result == "111111111111"
+    # Verify no pending responses (none were added, none should be consumed)
+    stubber.assert_no_pending_responses()

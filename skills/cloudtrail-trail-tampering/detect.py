@@ -34,6 +34,9 @@ TARGET_EVENT_NAMES: list[str] = [
     "PutBucketPublicAccessBlock",
 ]
 
+# Placeholder account ID used in fixtures and dry-run output
+FIXTURE_ACCOUNT_ID: str = "<account-id>"
+
 # Fixture data for --dry-run mode
 DRY_RUN_FIXTURES: list[dict] = [
     {
@@ -119,6 +122,34 @@ DRY_RUN_FIXTURES: list[dict] = [
         })
     }
 ]
+
+
+def resolve_account_id(sts_client: "BaseClient", explicit_id: str | None) -> str:
+    """
+    Resolve AWS account ID from explicit CLI argument or STS GetCallerIdentity.
+
+    Args:
+        sts_client: boto3 STS client instance
+        explicit_id: Account ID from --account-id CLI arg, or None if not provided
+
+    Returns:
+        12-digit AWS account ID string
+
+    Raises:
+        botocore.exceptions.ClientError: If STS GetCallerIdentity fails
+            (e.g., no credentials, permission denied, network error)
+
+    Examples:
+        >>> sts = boto3.client('sts')
+        >>> resolve_account_id(sts, '111111111111')  # Explicit override
+        '111111111111'
+        >>> resolve_account_id(sts, None)  # Calls STS
+        '999999999999'  # From get_caller_identity()['Account']
+    """
+    if explicit_id is not None:
+        return explicit_id
+    response = sts_client.get_caller_identity()
+    return response["Account"]
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
