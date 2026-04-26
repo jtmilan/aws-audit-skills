@@ -16,3 +16,6 @@ __pycache__/
 # Pipeline artifacts and worktrees
 .artifacts/
 .worktrees/
+# Environment files
+.env
+.env.*
