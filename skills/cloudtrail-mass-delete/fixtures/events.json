@@ -1,0 +1,256 @@
+{
+  "Events": [
+    {
+      "EventId": "burst-event-001",
+      "EventName": "DeleteBucket",
+      "EventTime": "2026-04-26T10:00:00Z",
+      "EventSource": "s3.amazonaws.com",
+      "Username": "admin",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/admin\"},\"eventName\":\"DeleteBucket\",\"eventTime\":\"2026-04-26T10:00:00Z\"}"
+    },
+    {
+      "EventId": "burst-event-002",
+      "EventName": "DeleteObject",
+      "EventTime": "2026-04-26T10:00:10Z",
+      "EventSource": "s3.amazonaws.com",
+      "Username": "admin",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/admin\"},\"eventName\":\"DeleteObject\",\"eventTime\":\"2026-04-26T10:00:10Z\"}"
+    },
+    {
+      "EventId": "burst-event-003",
+      "EventName": "DeleteUser",
+      "EventTime": "2026-04-26T10:00:20Z",
+      "EventSource": "iam.amazonaws.com",
+      "Username": "admin",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/admin\"},\"eventName\":\"DeleteUser\",\"eventTime\":\"2026-04-26T10:00:20Z\"}"
+    },
+    {
+      "EventId": "burst-event-004",
+      "EventName": "DeleteFunction",
+      "EventTime": "2026-04-26T10:00:30Z",
+      "EventSource": "lambda.amazonaws.com",
+      "Username": "admin",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/admin\"},\"eventName\":\"DeleteFunction\",\"eventTime\":\"2026-04-26T10:00:30Z\"}"
+    },
+    {
+      "EventId": "burst-event-005",
+      "EventName": "DeleteRole",
+      "EventTime": "2026-04-26T10:00:40Z",
+      "EventSource": "iam.amazonaws.com",
+      "Username": "admin",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/admin\"},\"eventName\":\"DeleteRole\",\"eventTime\":\"2026-04-26T10:00:40Z\"}"
+    },
+    {
+      "EventId": "burst-event-006",
+      "EventName": "DeleteTable",
+      "EventTime": "2026-04-26T10:00:50Z",
+      "EventSource": "dynamodb.amazonaws.com",
+      "Username": "admin",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/admin\"},\"eventName\":\"DeleteTable\",\"eventTime\":\"2026-04-26T10:00:50Z\"}"
+    },
+    {
+      "EventId": "burst-event-007",
+      "EventName": "DeleteQueue",
+      "EventTime": "2026-04-26T10:01:00Z",
+      "EventSource": "sqs.amazonaws.com",
+      "Username": "admin",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/admin\"},\"eventName\":\"DeleteQueue\",\"eventTime\":\"2026-04-26T10:01:00Z\"}"
+    },
+    {
+      "EventId": "burst-event-008",
+      "EventName": "DeleteTopic",
+      "EventTime": "2026-04-26T10:01:10Z",
+      "EventSource": "sns.amazonaws.com",
+      "Username": "admin",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/admin\"},\"eventName\":\"DeleteTopic\",\"eventTime\":\"2026-04-26T10:01:10Z\"}"
+    },
+    {
+      "EventId": "burst-event-009",
+      "EventName": "DeleteDBInstance",
+      "EventTime": "2026-04-26T10:01:20Z",
+      "EventSource": "rds.amazonaws.com",
+      "Username": "admin",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/admin\"},\"eventName\":\"DeleteDBInstance\",\"eventTime\":\"2026-04-26T10:01:20Z\"}"
+    },
+    {
+      "EventId": "burst-event-010",
+      "EventName": "DeleteCluster",
+      "EventTime": "2026-04-26T10:01:30Z",
+      "EventSource": "eks.amazonaws.com",
+      "Username": "admin",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/admin\"},\"eventName\":\"DeleteCluster\",\"eventTime\":\"2026-04-26T10:01:30Z\"}"
+    },
+    {
+      "EventId": "burst-event-011",
+      "EventName": "DeleteVolume",
+      "EventTime": "2026-04-26T10:01:40Z",
+      "EventSource": "ec2.amazonaws.com",
+      "Username": "admin",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/admin\"},\"eventName\":\"DeleteVolume\",\"eventTime\":\"2026-04-26T10:01:40Z\"}"
+    },
+    {
+      "EventId": "burst-event-012",
+      "EventName": "DeleteSnapshot",
+      "EventTime": "2026-04-26T10:01:50Z",
+      "EventSource": "ec2.amazonaws.com",
+      "Username": "admin",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/admin\"},\"eventName\":\"DeleteSnapshot\",\"eventTime\":\"2026-04-26T10:01:50Z\"}"
+    },
+    {
+      "EventId": "burst-event-013",
+      "EventName": "DeleteStack",
+      "EventTime": "2026-04-26T10:02:00Z",
+      "EventSource": "cloudformation.amazonaws.com",
+      "Username": "admin",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/admin\"},\"eventName\":\"DeleteStack\",\"eventTime\":\"2026-04-26T10:02:00Z\"}"
+    },
+    {
+      "EventId": "burst-event-014",
+      "EventName": "DeletePolicy",
+      "EventTime": "2026-04-26T10:02:10Z",
+      "EventSource": "iam.amazonaws.com",
+      "Username": "admin",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/admin\"},\"eventName\":\"DeletePolicy\",\"eventTime\":\"2026-04-26T10:02:10Z\"}"
+    },
+    {
+      "EventId": "burst-event-015",
+      "EventName": "DeleteGroup",
+      "EventTime": "2026-04-26T10:02:20Z",
+      "EventSource": "iam.amazonaws.com",
+      "Username": "admin",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/admin\"},\"eventName\":\"DeleteGroup\",\"eventTime\":\"2026-04-26T10:02:20Z\"}"
+    },
+    {
+      "EventId": "subthreshold-event-001",
+      "EventName": "DeleteAccessKey",
+      "EventTime": "2026-04-26T10:10:00Z",
+      "EventSource": "iam.amazonaws.com",
+      "Username": "readonly",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/readonly\"},\"eventName\":\"DeleteAccessKey\",\"eventTime\":\"2026-04-26T10:10:00Z\"}"
+    },
+    {
+      "EventId": "subthreshold-event-002",
+      "EventName": "DeleteLoginProfile",
+      "EventTime": "2026-04-26T10:11:00Z",
+      "EventSource": "iam.amazonaws.com",
+      "Username": "readonly",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/readonly\"},\"eventName\":\"DeleteLoginProfile\",\"eventTime\":\"2026-04-26T10:11:00Z\"}"
+    },
+    {
+      "EventId": "subthreshold-event-003",
+      "EventName": "DeleteUserPolicy",
+      "EventTime": "2026-04-26T10:12:00Z",
+      "EventSource": "iam.amazonaws.com",
+      "Username": "readonly",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/readonly\"},\"eventName\":\"DeleteUserPolicy\",\"eventTime\":\"2026-04-26T10:12:00Z\"}"
+    },
+    {
+      "EventId": "subthreshold-event-004",
+      "EventName": "DeleteRolePolicy",
+      "EventTime": "2026-04-26T10:13:00Z",
+      "EventSource": "iam.amazonaws.com",
+      "Username": "readonly",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/readonly\"},\"eventName\":\"DeleteRolePolicy\",\"eventTime\":\"2026-04-26T10:13:00Z\"}"
+    },
+    {
+      "EventId": "subthreshold-event-005",
+      "EventName": "DeleteKeyPair",
+      "EventTime": "2026-04-26T10:14:00Z",
+      "EventSource": "ec2.amazonaws.com",
+      "Username": "readonly",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/readonly\"},\"eventName\":\"DeleteKeyPair\",\"eventTime\":\"2026-04-26T10:14:00Z\"}"
+    },
+    {
+      "EventId": "subthreshold-event-006",
+      "EventName": "DeleteSecurityGroup",
+      "EventTime": "2026-04-26T10:15:00Z",
+      "EventSource": "ec2.amazonaws.com",
+      "Username": "readonly",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/readonly\"},\"eventName\":\"DeleteSecurityGroup\",\"eventTime\":\"2026-04-26T10:15:00Z\"}"
+    },
+    {
+      "EventId": "subthreshold-event-007",
+      "EventName": "DeleteNetworkInterface",
+      "EventTime": "2026-04-26T10:16:00Z",
+      "EventSource": "ec2.amazonaws.com",
+      "Username": "readonly",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/readonly\"},\"eventName\":\"DeleteNetworkInterface\",\"eventTime\":\"2026-04-26T10:16:00Z\"}"
+    },
+    {
+      "EventId": "subthreshold-event-008",
+      "EventName": "DeleteSubnet",
+      "EventTime": "2026-04-26T10:17:00Z",
+      "EventSource": "ec2.amazonaws.com",
+      "Username": "readonly",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/readonly\"},\"eventName\":\"DeleteSubnet\",\"eventTime\":\"2026-04-26T10:17:00Z\"}"
+    },
+    {
+      "EventId": "non-delete-event-001",
+      "EventName": "CreateBucket",
+      "EventTime": "2026-04-26T10:20:00Z",
+      "EventSource": "s3.amazonaws.com",
+      "Username": "developer",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/developer\"},\"eventName\":\"CreateBucket\",\"eventTime\":\"2026-04-26T10:20:00Z\"}"
+    },
+    {
+      "EventId": "non-delete-event-002",
+      "EventName": "CreateUser",
+      "EventTime": "2026-04-26T10:20:30Z",
+      "EventSource": "iam.amazonaws.com",
+      "Username": "developer",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/developer\"},\"eventName\":\"CreateUser\",\"eventTime\":\"2026-04-26T10:20:30Z\"}"
+    },
+    {
+      "EventId": "non-delete-event-003",
+      "EventName": "CreateRole",
+      "EventTime": "2026-04-26T10:21:00Z",
+      "EventSource": "iam.amazonaws.com",
+      "Username": "developer",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/developer\"},\"eventName\":\"CreateRole\",\"eventTime\":\"2026-04-26T10:21:00Z\"}"
+    },
+    {
+      "EventId": "non-delete-event-004",
+      "EventName": "PutObject",
+      "EventTime": "2026-04-26T10:21:30Z",
+      "EventSource": "s3.amazonaws.com",
+      "Username": "developer",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/developer\"},\"eventName\":\"PutObject\",\"eventTime\":\"2026-04-26T10:21:30Z\"}"
+    },
+    {
+      "EventId": "non-delete-event-005",
+      "EventName": "GetObject",
+      "EventTime": "2026-04-26T10:22:00Z",
+      "EventSource": "s3.amazonaws.com",
+      "Username": "developer",
+      "Resources": [],
+      "CloudTrailEvent": "{\"userIdentity\":{\"type\":\"IAMUser\",\"arn\":\"arn:aws:iam::123456789012:user/developer\"},\"eventName\":\"GetObject\",\"eventTime\":\"2026-04-26T10:22:00Z\"}"
+    }
+  ]
+}
