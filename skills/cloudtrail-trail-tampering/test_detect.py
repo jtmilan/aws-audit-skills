@@ -1,0 +1,652 @@
+"""Tests for cloudtrail-trail-tampering detection skill."""
+import json
+from datetime import datetime, timezone
+from unittest.mock import ANY
+
+import boto3
+import pytest
+from botocore.stub import Stubber
+
+from detect import (
+    DRY_RUN_FIXTURES,
+    TARGET_EVENT_NAMES,
+    extract_finding,
+    fetch_events,
+    is_tampering_event,
+)
+
+
+# ============================================================================
+# Unit tests for is_tampering_event
+# ============================================================================
+
+
+def test_delete_trail_detected():
+    """Verify DeleteTrail events are flagged as tampering."""
+    event = {
+        "EventId": "test-delete-001",
+        "EventName": "DeleteTrail",
+        "EventTime": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+        "EventSource": "cloudtrail.amazonaws.com",
+        "Username": "test-user",
+        "Resources": [{"ResourceType": "AWS::CloudTrail::Trail", "ResourceName": "test-trail"}],
+        "CloudTrailEvent": json.dumps({
+            "userIdentity": {"arn": "arn:aws:iam::123456789012:user/test-user"},
+            "requestParameters": {"name": "test-trail"}
+        })
+    }
+
+    assert is_tampering_event(event) is True
+
+    finding = extract_finding(event)
+    assert finding["action"] == "DeleteTrail"
+    assert finding["severity"] == "high"
+    assert finding["target_resource"] == "test-trail"
+
+
+def test_stop_logging_detected():
+    """Verify StopLogging events are flagged as tampering."""
+    event = {
+        "EventId": "test-stop-001",
+        "EventName": "StopLogging",
+        "EventTime": datetime(2024, 1, 15, 11, 0, 0, tzinfo=timezone.utc),
+        "EventSource": "cloudtrail.amazonaws.com",
+        "Username": "test-user",
+        "Resources": [{"ResourceType": "AWS::CloudTrail::Trail", "ResourceName": "main-trail"}],
+        "CloudTrailEvent": json.dumps({
+            "userIdentity": {"arn": "arn:aws:iam::123456789012:user/test-user"},
+            "requestParameters": {"name": "main-trail"}
+        })
+    }
+
+    assert is_tampering_event(event) is True
+
+    finding = extract_finding(event)
+    assert finding["action"] == "StopLogging"
+    assert finding["severity"] == "high"
+
+
+def test_harmless_update_trail_ignored():
+    """Verify UpdateTrail without isLogging=False is NOT flagged."""
+    # UpdateTrail that changes S3 bucket but doesn't disable logging
+    event = {
+        "EventId": "test-update-harmless-001",
+        "EventName": "UpdateTrail",
+        "EventTime": datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+        "EventSource": "cloudtrail.amazonaws.com",
+        "Username": "admin-user",
+        "Resources": [{"ResourceType": "AWS::CloudTrail::Trail", "ResourceName": "prod-trail"}],
+        "CloudTrailEvent": json.dumps({
+            "userIdentity": {"arn": "arn:aws:iam::123456789012:user/admin-user"},
+            "requestParameters": {
+                "name": "prod-trail",
+                "s3BucketName": "new-bucket-name"
+                # Note: isLogging is NOT present, so this is harmless
+            }
+        })
+    }
+
+    assert is_tampering_event(event) is False
+
+
+def test_update_trail_with_logging_disabled_detected():
+    """Verify UpdateTrail with isLogging=False is flagged as tampering."""
+    event = {
+        "EventId": "test-update-disable-001",
+        "EventName": "UpdateTrail",
+        "EventTime": datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+        "EventSource": "cloudtrail.amazonaws.com",
+        "Username": "attacker",
+        "Resources": [{"ResourceType": "AWS::CloudTrail::Trail", "ResourceName": "prod-trail"}],
+        "CloudTrailEvent": json.dumps({
+            "userIdentity": {"arn": "arn:aws:iam::123456789012:user/attacker"},
+            "requestParameters": {"name": "prod-trail", "isLogging": False}
+        })
+    }
+
+    assert is_tampering_event(event) is True
+
+    finding = extract_finding(event)
+    assert finding["action"] == "UpdateTrail"
+    assert finding["severity"] == "high"
+    assert finding["target_resource"] == "prod-trail"
+
+
+def test_put_bucket_public_access_block_all_disabled_detected():
+    """Verify PutBucketPublicAccessBlock with all protections disabled is flagged."""
+    event = {
+        "EventId": "test-pab-disabled-001",
+        "EventName": "PutBucketPublicAccessBlock",
+        "EventTime": datetime(2024, 1, 15, 13, 0, 0, tzinfo=timezone.utc),
+        "EventSource": "s3.amazonaws.com",
+        "Username": "bucket-modifier",
+        "Resources": [{"ResourceType": "AWS::S3::Bucket", "ResourceName": "sensitive-logs-bucket"}],
+        "CloudTrailEvent": json.dumps({
+            "userIdentity": {"arn": "arn:aws:iam::123456789012:user/bucket-modifier"},
+            "requestParameters": {
+                "bucketName": "sensitive-logs-bucket",
+                "PublicAccessBlockConfiguration": {
+                    "BlockPublicAcls": False,
+                    "IgnorePublicAcls": False,
+                    "BlockPublicPolicy": False,
+                    "RestrictPublicBuckets": False
+                }
+            }
+        })
+    }
+
+    assert is_tampering_event(event) is True
+
+    finding = extract_finding(event)
+    assert finding["action"] == "PutBucketPublicAccessBlock"
+    assert finding["severity"] == "high"
+    assert finding["target_resource"] == "sensitive-logs-bucket"
+
+
+def test_put_bucket_public_access_block_partial_enabled_ignored():
+    """Verify PutBucketPublicAccessBlock with some protections enabled is NOT flagged."""
+    event = {
+        "EventId": "test-pab-partial-001",
+        "EventName": "PutBucketPublicAccessBlock",
+        "EventTime": datetime(2024, 1, 15, 13, 0, 0, tzinfo=timezone.utc),
+        "EventSource": "s3.amazonaws.com",
+        "Username": "bucket-modifier",
+        "Resources": [{"ResourceType": "AWS::S3::Bucket", "ResourceName": "some-bucket"}],
+        "CloudTrailEvent": json.dumps({
+            "userIdentity": {"arn": "arn:aws:iam::123456789012:user/bucket-modifier"},
+            "requestParameters": {
+                "bucketName": "some-bucket",
+                "PublicAccessBlockConfiguration": {
+                    "BlockPublicAcls": True,  # This one is enabled
+                    "IgnorePublicAcls": False,
+                    "BlockPublicPolicy": False,
+                    "RestrictPublicBuckets": False
+                }
+            }
+        })
+    }
+
+    assert is_tampering_event(event) is False
+
+
+def test_unknown_event_ignored():
+    """Verify unknown event types are NOT flagged."""
+    event = {
+        "EventId": "test-unknown-001",
+        "EventName": "DescribeTrails",
+        "EventTime": datetime(2024, 1, 15, 14, 0, 0, tzinfo=timezone.utc),
+        "EventSource": "cloudtrail.amazonaws.com",
+        "Username": "some-user",
+        "CloudTrailEvent": json.dumps({
+            "userIdentity": {"arn": "arn:aws:iam::123456789012:user/some-user"},
+            "requestParameters": {}
+        })
+    }
+
+    assert is_tampering_event(event) is False
+
+
+def test_invalid_json_in_cloud_trail_event():
+    """Verify invalid JSON in CloudTrailEvent is handled gracefully."""
+    event = {
+        "EventId": "test-invalid-json-001",
+        "EventName": "UpdateTrail",
+        "EventTime": datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+        "CloudTrailEvent": "not valid json"
+    }
+
+    # Should return False (not classified as tampering) rather than raising
+    assert is_tampering_event(event) is False
+
+
+# ============================================================================
+# Unit tests for extract_finding
+# ============================================================================
+
+
+def test_extract_finding_basic_fields():
+    """Verify extract_finding extracts all required fields correctly."""
+    event = {
+        "EventId": "test-001",
+        "EventName": "DeleteTrail",
+        "EventTime": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+        "CloudTrailEvent": json.dumps({
+            "userIdentity": {"arn": "arn:aws:iam::123456789012:user/test-user"},
+            "requestParameters": {"name": "test-trail"}
+        })
+    }
+
+    finding = extract_finding(event)
+
+    assert finding["event_time"] == "2024-01-15T10:30:00+00:00"
+    assert finding["principal"] == "arn:aws:iam::123456789012:user/test-user"
+    assert finding["action"] == "DeleteTrail"
+    assert finding["target_resource"] == "test-trail"
+    assert finding["severity"] == "high"
+
+
+def test_extract_finding_principal_fallback_username():
+    """Verify extract_finding falls back to userName when arn is missing."""
+    event = {
+        "EventId": "test-002",
+        "EventName": "DeleteTrail",
+        "EventTime": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+        "CloudTrailEvent": json.dumps({
+            "userIdentity": {"userName": "fallback-user"},
+            "requestParameters": {"name": "test-trail"}
+        })
+    }
+
+    finding = extract_finding(event)
+    assert finding["principal"] == "fallback-user"
+
+
+def test_extract_finding_principal_fallback_principal_id():
+    """Verify extract_finding falls back to principalId when arn and userName missing."""
+    event = {
+        "EventId": "test-003",
+        "EventName": "DeleteTrail",
+        "EventTime": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+        "CloudTrailEvent": json.dumps({
+            "userIdentity": {"principalId": "AIDAEXAMPLE"},
+            "requestParameters": {"name": "test-trail"}
+        })
+    }
+
+    finding = extract_finding(event)
+    assert finding["principal"] == "AIDAEXAMPLE"
+
+
+def test_extract_finding_principal_fallback_unknown():
+    """Verify extract_finding returns 'unknown' when no principal info available."""
+    event = {
+        "EventId": "test-004",
+        "EventName": "DeleteTrail",
+        "EventTime": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+        "CloudTrailEvent": json.dumps({
+            "userIdentity": {},
+            "requestParameters": {"name": "test-trail"}
+        })
+    }
+
+    finding = extract_finding(event)
+    assert finding["principal"] == "unknown"
+
+
+def test_extract_finding_target_resource_from_bucket_name():
+    """Verify extract_finding extracts bucketName for S3 events."""
+    event = {
+        "EventId": "test-005",
+        "EventName": "PutBucketPublicAccessBlock",
+        "EventTime": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+        "CloudTrailEvent": json.dumps({
+            "userIdentity": {"arn": "arn:aws:iam::123456789012:user/test-user"},
+            "requestParameters": {"bucketName": "my-bucket"}
+        })
+    }
+
+    finding = extract_finding(event)
+    assert finding["target_resource"] == "my-bucket"
+
+
+def test_extract_finding_target_resource_fallback_to_resources():
+    """Verify extract_finding falls back to Resources array when name/bucketName missing."""
+    event = {
+        "EventId": "test-006",
+        "EventName": "DeleteTrail",
+        "EventTime": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+        "Resources": [{"ResourceType": "AWS::CloudTrail::Trail", "ResourceName": "resource-trail"}],
+        "CloudTrailEvent": json.dumps({
+            "userIdentity": {"arn": "arn:aws:iam::123456789012:user/test-user"},
+            "requestParameters": {}
+        })
+    }
+
+    finding = extract_finding(event)
+    assert finding["target_resource"] == "resource-trail"
+
+
+def test_extract_finding_target_resource_unknown():
+    """Verify extract_finding returns 'unknown' when no resource info available."""
+    event = {
+        "EventId": "test-007",
+        "EventName": "DeleteTrail",
+        "EventTime": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+        "CloudTrailEvent": json.dumps({
+            "userIdentity": {"arn": "arn:aws:iam::123456789012:user/test-user"},
+            "requestParameters": {}
+        })
+    }
+
+    finding = extract_finding(event)
+    assert finding["target_resource"] == "unknown"
+
+
+def test_extract_finding_handles_invalid_json():
+    """Verify extract_finding handles invalid CloudTrailEvent JSON gracefully."""
+    event = {
+        "EventId": "test-008",
+        "EventName": "DeleteTrail",
+        "EventTime": datetime(2024, 1, 15, 10, 30, 0, tzinfo=timezone.utc),
+        "CloudTrailEvent": "not valid json"
+    }
+
+    finding = extract_finding(event)
+    assert finding["principal"] == "unknown"
+    assert finding["target_resource"] == "unknown"
+    assert finding["action"] == "DeleteTrail"
+    assert finding["severity"] == "high"
+
+
+# ============================================================================
+# Stubber integration tests for fetch_events
+# ============================================================================
+
+
+def test_fetch_events_with_stubber():
+    """Integration test using botocore Stubber for CloudTrail API.
+
+    IMPORTANT: fetch_events() queries for 4 event names, so we must
+    add 4 stub responses - one for each event name query.
+    """
+    client = boto3.client("cloudtrail", region_name="us-east-1")
+    stubber = Stubber(client)
+
+    # Stub response for DeleteTrail lookup
+    stubber.add_response(
+        "lookup_events",
+        {
+            "Events": [
+                {
+                    "EventId": "stub-delete-001",
+                    "EventName": "DeleteTrail",
+                    "EventTime": datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+                    "EventSource": "cloudtrail.amazonaws.com",
+                    "Username": "stub-user",
+                    "CloudTrailEvent": json.dumps({
+                        "userIdentity": {"arn": "arn:aws:iam::123:user/stub-user"},
+                        "requestParameters": {"name": "stub-trail"}
+                    })
+                }
+            ]
+        },
+        expected_params={
+            "LookupAttributes": [{"AttributeKey": "EventName", "AttributeValue": "DeleteTrail"}],
+            "StartTime": ANY,
+            "EndTime": ANY
+        }
+    )
+
+    # Stub response for StopLogging lookup (empty - no events found)
+    stubber.add_response(
+        "lookup_events",
+        {"Events": []},
+        expected_params={
+            "LookupAttributes": [{"AttributeKey": "EventName", "AttributeValue": "StopLogging"}],
+            "StartTime": ANY,
+            "EndTime": ANY
+        }
+    )
+
+    # Stub response for UpdateTrail lookup (empty - no events found)
+    stubber.add_response(
+        "lookup_events",
+        {"Events": []},
+        expected_params={
+            "LookupAttributes": [{"AttributeKey": "EventName", "AttributeValue": "UpdateTrail"}],
+            "StartTime": ANY,
+            "EndTime": ANY
+        }
+    )
+
+    # Stub response for PutBucketPublicAccessBlock lookup (empty - no events found)
+    stubber.add_response(
+        "lookup_events",
+        {"Events": []},
+        expected_params={
+            "LookupAttributes": [{"AttributeKey": "EventName", "AttributeValue": "PutBucketPublicAccessBlock"}],
+            "StartTime": ANY,
+            "EndTime": ANY
+        }
+    )
+
+    stubber.activate()
+    try:
+        events = fetch_events(client, lookback_hours=24)
+    finally:
+        stubber.deactivate()
+
+    assert len(events) == 1
+    assert events[0]["EventName"] == "DeleteTrail"
+    stubber.assert_no_pending_responses()
+
+
+def test_fetch_events_pagination():
+    """Verify NextToken pagination is handled correctly."""
+    client = boto3.client("cloudtrail", region_name="us-east-1")
+    stubber = Stubber(client)
+
+    # First page of DeleteTrail results - has NextToken
+    stubber.add_response(
+        "lookup_events",
+        {
+            "Events": [
+                {
+                    "EventId": "stub-delete-001",
+                    "EventName": "DeleteTrail",
+                    "EventTime": datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+                    "EventSource": "cloudtrail.amazonaws.com",
+                    "Username": "user1",
+                    "CloudTrailEvent": json.dumps({
+                        "userIdentity": {"arn": "arn:aws:iam::123:user/user1"},
+                        "requestParameters": {"name": "trail1"}
+                    })
+                }
+            ],
+            "NextToken": "page2token"
+        },
+        expected_params={
+            "LookupAttributes": [{"AttributeKey": "EventName", "AttributeValue": "DeleteTrail"}],
+            "StartTime": ANY,
+            "EndTime": ANY
+        }
+    )
+
+    # Second page of DeleteTrail results - no NextToken (end of results)
+    stubber.add_response(
+        "lookup_events",
+        {
+            "Events": [
+                {
+                    "EventId": "stub-delete-002",
+                    "EventName": "DeleteTrail",
+                    "EventTime": datetime(2024, 1, 15, 11, 0, 0, tzinfo=timezone.utc),
+                    "EventSource": "cloudtrail.amazonaws.com",
+                    "Username": "user2",
+                    "CloudTrailEvent": json.dumps({
+                        "userIdentity": {"arn": "arn:aws:iam::123:user/user2"},
+                        "requestParameters": {"name": "trail2"}
+                    })
+                }
+            ]
+        },
+        expected_params={
+            "LookupAttributes": [{"AttributeKey": "EventName", "AttributeValue": "DeleteTrail"}],
+            "StartTime": ANY,
+            "EndTime": ANY,
+            "NextToken": "page2token"
+        }
+    )
+
+    # Stub empty responses for remaining 3 event types
+    for event_name in ["StopLogging", "UpdateTrail", "PutBucketPublicAccessBlock"]:
+        stubber.add_response(
+            "lookup_events",
+            {"Events": []},
+            expected_params={
+                "LookupAttributes": [{"AttributeKey": "EventName", "AttributeValue": event_name}],
+                "StartTime": ANY,
+                "EndTime": ANY
+            }
+        )
+
+    stubber.activate()
+    try:
+        events = fetch_events(client, lookback_hours=24)
+    finally:
+        stubber.deactivate()
+
+    # Should have both pages of DeleteTrail results
+    assert len(events) == 2
+    assert events[0]["EventId"] == "stub-delete-001"
+    assert events[1]["EventId"] == "stub-delete-002"
+    stubber.assert_no_pending_responses()
+
+
+def test_fetch_events_multiple_event_types():
+    """Verify fetch_events collects events from all 4 event types."""
+    client = boto3.client("cloudtrail", region_name="us-east-1")
+    stubber = Stubber(client)
+
+    # Stub response for DeleteTrail
+    stubber.add_response(
+        "lookup_events",
+        {
+            "Events": [
+                {
+                    "EventId": "delete-001",
+                    "EventName": "DeleteTrail",
+                    "EventTime": datetime(2024, 1, 15, 10, 0, 0, tzinfo=timezone.utc),
+                    "EventSource": "cloudtrail.amazonaws.com",
+                    "Username": "user1",
+                    "CloudTrailEvent": json.dumps({
+                        "userIdentity": {"arn": "arn:aws:iam::123:user/user1"},
+                        "requestParameters": {"name": "trail1"}
+                    })
+                }
+            ]
+        },
+        expected_params={
+            "LookupAttributes": [{"AttributeKey": "EventName", "AttributeValue": "DeleteTrail"}],
+            "StartTime": ANY,
+            "EndTime": ANY
+        }
+    )
+
+    # Stub response for StopLogging
+    stubber.add_response(
+        "lookup_events",
+        {
+            "Events": [
+                {
+                    "EventId": "stop-001",
+                    "EventName": "StopLogging",
+                    "EventTime": datetime(2024, 1, 15, 11, 0, 0, tzinfo=timezone.utc),
+                    "EventSource": "cloudtrail.amazonaws.com",
+                    "Username": "user2",
+                    "CloudTrailEvent": json.dumps({
+                        "userIdentity": {"arn": "arn:aws:iam::123:user/user2"},
+                        "requestParameters": {"name": "trail2"}
+                    })
+                }
+            ]
+        },
+        expected_params={
+            "LookupAttributes": [{"AttributeKey": "EventName", "AttributeValue": "StopLogging"}],
+            "StartTime": ANY,
+            "EndTime": ANY
+        }
+    )
+
+    # Stub response for UpdateTrail
+    stubber.add_response(
+        "lookup_events",
+        {
+            "Events": [
+                {
+                    "EventId": "update-001",
+                    "EventName": "UpdateTrail",
+                    "EventTime": datetime(2024, 1, 15, 12, 0, 0, tzinfo=timezone.utc),
+                    "EventSource": "cloudtrail.amazonaws.com",
+                    "Username": "user3",
+                    "CloudTrailEvent": json.dumps({
+                        "userIdentity": {"arn": "arn:aws:iam::123:user/user3"},
+                        "requestParameters": {"name": "trail3", "isLogging": False}
+                    })
+                }
+            ]
+        },
+        expected_params={
+            "LookupAttributes": [{"AttributeKey": "EventName", "AttributeValue": "UpdateTrail"}],
+            "StartTime": ANY,
+            "EndTime": ANY
+        }
+    )
+
+    # Stub response for PutBucketPublicAccessBlock
+    stubber.add_response(
+        "lookup_events",
+        {
+            "Events": [
+                {
+                    "EventId": "pab-001",
+                    "EventName": "PutBucketPublicAccessBlock",
+                    "EventTime": datetime(2024, 1, 15, 13, 0, 0, tzinfo=timezone.utc),
+                    "EventSource": "s3.amazonaws.com",
+                    "Username": "user4",
+                    "CloudTrailEvent": json.dumps({
+                        "userIdentity": {"arn": "arn:aws:iam::123:user/user4"},
+                        "requestParameters": {
+                            "bucketName": "bucket1",
+                            "PublicAccessBlockConfiguration": {
+                                "BlockPublicAcls": False,
+                                "IgnorePublicAcls": False,
+                                "BlockPublicPolicy": False,
+                                "RestrictPublicBuckets": False
+                            }
+                        }
+                    })
+                }
+            ]
+        },
+        expected_params={
+            "LookupAttributes": [{"AttributeKey": "EventName", "AttributeValue": "PutBucketPublicAccessBlock"}],
+            "StartTime": ANY,
+            "EndTime": ANY
+        }
+    )
+
+    stubber.activate()
+    try:
+        events = fetch_events(client, lookback_hours=24)
+    finally:
+        stubber.deactivate()
+
+    # Should have all 4 events
+    assert len(events) == 4
+    event_names = [e["EventName"] for e in events]
+    assert "DeleteTrail" in event_names
+    assert "StopLogging" in event_names
+    assert "UpdateTrail" in event_names
+    assert "PutBucketPublicAccessBlock" in event_names
+    stubber.assert_no_pending_responses()
+
+
+# ============================================================================
+# Verification that DRY_RUN_FIXTURES work correctly
+# ============================================================================
+
+
+def test_dry_run_fixtures_all_tampering():
+    """Verify all DRY_RUN_FIXTURES are correctly classified as tampering events."""
+    for fixture in DRY_RUN_FIXTURES:
+        assert is_tampering_event(fixture) is True, f"Fixture {fixture['EventId']} should be tampering"
+
+
+def test_target_event_names_constant():
+    """Verify TARGET_EVENT_NAMES contains all expected event names."""
+    assert "DeleteTrail" in TARGET_EVENT_NAMES
+    assert "StopLogging" in TARGET_EVENT_NAMES
+    assert "UpdateTrail" in TARGET_EVENT_NAMES
+    assert "PutBucketPublicAccessBlock" in TARGET_EVENT_NAMES
+    assert len(TARGET_EVENT_NAMES) == 4
