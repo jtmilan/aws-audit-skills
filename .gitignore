@@ -13,6 +13,10 @@ __pycache__/
 .vscode/
 .DS_Store
 
+# Environment and secrets
+.env
+.env.*
+
 # Development artifacts
 .artifacts/
 .worktrees/
