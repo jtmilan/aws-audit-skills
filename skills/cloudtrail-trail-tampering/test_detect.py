@@ -720,17 +720,16 @@ def test_missing_account_id_returns_false():
 # ============================================================================
 
 
-def test_dry_run_fixtures_missing_account_id():
-    """Verify DRY_RUN_FIXTURES without accountId return False.
+def test_dry_run_fixtures_all_tampering():
+    """Verify all DRY_RUN_FIXTURES are correctly flagged as tampering.
 
-    Note: DRY_RUN_FIXTURES currently lack accountId in userIdentity.
-    Per account-scoped filtering, events without accountId are not flagged.
-    A separate issue will update fixtures to include accountId.
+    DRY_RUN_FIXTURES include accountId: FIXTURE_ACCOUNT_ID in userIdentity.
+    When passed the matching FIXTURE_ACCOUNT_ID, all events should be flagged.
     """
     for fixture in DRY_RUN_FIXTURES:
-        # Fixtures don't have accountId, so they should return False
-        assert is_tampering_event(fixture, "123456789012") is False, (
-            f"Fixture {fixture['EventId']} should NOT be tampering (missing accountId)"
+        # Fixtures have accountId=FIXTURE_ACCOUNT_ID, so they should be tampering
+        assert is_tampering_event(fixture, FIXTURE_ACCOUNT_ID) is True, (
+            f"Fixture {fixture['EventId']} should be flagged as tampering"
         )
 
 
