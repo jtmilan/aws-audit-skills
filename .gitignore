@@ -12,3 +12,21 @@ __pycache__/
 .idea/
 .vscode/
 .DS_Store
+
+# Pipeline artifacts and worktrees
+.artifacts/
+.worktrees/
+
+# Environment files
+.env
+.env.local
+.env.*
+
+# Additional Python
+dist/
+build/
+*.egg
+
+# OS files
+Thumbs.db
+*~
