@@ -1,10 +1,10 @@
 {
-  "arn:aws:iam::999999999999:policy/CustomS3Policy": {
+  "arn:aws:iam::999999999999:policy/AdministratorAccess": {
     "Version": "2012-10-17",
     "Statement": [
       {
         "Effect": "Allow",
-        "Action": "s3:*",
+        "Action": "*",
         "Resource": "*"
       }
     ]
@@ -19,13 +19,53 @@
       }
     ]
   },
-  "arn:aws:iam::999999999999:policy/AdministratorAccess": {
+  "arn:aws:iam::999999999999:policy/S3WildcardPolicy": {
     "Version": "2012-10-17",
     "Statement": [
       {
         "Effect": "Allow",
-        "Action": "*",
+        "Action": "s3:*",
         "Resource": "*"
+      }
+    ]
+  },
+  "arn:aws:iam::999999999999:policy/S3GetObjectWildcardResource": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": "s3:GetObject",
+        "Resource": "*"
+      }
+    ]
+  },
+  "arn:aws:iam::999999999999:policy/EC2TerminateInstancesPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": "ec2:TerminateInstances",
+        "Resource": "*"
+      }
+    ]
+  },
+  "arn:aws:iam::999999999999:policy/EC2WildcardPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": "ec2:*",
+        "Resource": "*"
+      }
+    ]
+  },
+  "arn:aws:iam::999999999999:policy/S3BucketPolicy": {
+    "Version": "2012-10-17",
+    "Statement": [
+      {
+        "Effect": "Allow",
+        "Action": "s3:GetObject",
+        "Resource": "arn:aws:s3:::my-bucket/*"
       }
     ]
   }

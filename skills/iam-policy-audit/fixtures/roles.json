@@ -2,27 +2,35 @@
   "Roles": [
     {
       "Path": "/",
-      "RoleName": "LambdaExecutionRole",
-      "RoleId": "AIDACKCEVSQ6C2EXAMPLE",
-      "Arn": "arn:aws:iam::999999999999:role/LambdaExecutionRole",
-      "CreateDate": "2024-01-15T10:00:00",
+      "RoleName": "AdminRole",
+      "RoleId": "AIDACKCEVSQ6C2EXAMPLE1",
+      "Arn": "arn:aws:iam::999999999999:role/AdminRole",
+      "CreateDate": "2026-04-06T10:00:00",
+      "AssumeRolePolicyDocument": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"AWS\": \"arn:aws:iam::999999999999:root\"}, \"Action\": \"sts:AssumeRole\"}]}"
+    },
+    {
+      "Path": "/",
+      "RoleName": "LambdaRole",
+      "RoleId": "AIDACKCEVSQ6C2EXAMPLE2",
+      "Arn": "arn:aws:iam::999999999999:role/LambdaRole",
+      "CreateDate": "2026-03-22T10:00:00",
       "AssumeRolePolicyDocument": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"Service\": \"lambda.amazonaws.com\"}, \"Action\": \"sts:AssumeRole\"}]}"
     },
     {
       "Path": "/",
-      "RoleName": "S3AccessRole",
-      "RoleId": "AIDACKCEVSQ6C2EXAMPLE2",
-      "Arn": "arn:aws:iam::999999999999:role/S3AccessRole",
-      "CreateDate": "2024-02-20T10:00:00",
+      "RoleName": "OldRole",
+      "RoleId": "AIDACKCEVSQ6C2EXAMPLE3",
+      "Arn": "arn:aws:iam::999999999999:role/OldRole",
+      "CreateDate": "2026-01-21T10:00:00",
       "AssumeRolePolicyDocument": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"Service\": \"ec2.amazonaws.com\"}, \"Action\": \"sts:AssumeRole\"}]}"
     },
     {
       "Path": "/",
-      "RoleName": "AdminRole",
-      "RoleId": "AIDACKCEVSQ6C2EXAMPLE3",
-      "Arn": "arn:aws:iam::999999999999:role/AdminRole",
-      "CreateDate": "2023-01-01T10:00:00",
-      "AssumeRolePolicyDocument": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"AWS\": \"arn:aws:iam::999999999999:root\"}, \"Action\": \"sts:AssumeRole\"}]}"
+      "RoleName": "S3AccessRole",
+      "RoleId": "AIDACKCEVSQ6C2EXAMPLE4",
+      "Arn": "arn:aws:iam::999999999999:role/S3AccessRole",
+      "CreateDate": "2026-03-07T10:00:00",
+      "AssumeRolePolicyDocument": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"Service\": \"ec2.amazonaws.com\"}, \"Action\": \"sts:AssumeRole\"}]}"
     }
   ]
 }
