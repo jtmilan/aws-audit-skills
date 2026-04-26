@@ -633,5 +633,472 @@ class TestRealModeWithStubber:
         assert 'No IAM Policy Issues Found' in output or 'AdministratorAccess' not in output
 
 
+class TestPolicyDocumentParsing:
+    """Tests for policy document parsing edge cases."""
+
+    def test_action_as_string_not_list(self):
+        """Test that Action field can be a string (not just list)."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Policy with Action as string (not list)
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': '*',  # String, not list
+                    'Resource': '*'
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_actions(policy_doc, 'TestPolicy', None)
+        assert len(findings) > 0
+        assert any(f.severity == 'high' for f in findings)
+
+    def test_resource_as_string_not_list(self):
+        """Test that Resource field can be a string (not just list)."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Policy with Resource as string (not list)
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': 's3:*',
+                    'Resource': '*'  # String, not list
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_resources(policy_doc, 'TestPolicy')
+        assert len(findings) > 0
+        assert any(f.severity == 'high' for f in findings)
+
+    def test_deny_statement_not_processed(self):
+        """Test that Deny statements are ignored (only Allow processed)."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Policy with Deny statement (should be ignored)
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Deny',
+                    'Action': '*',
+                    'Resource': '*'
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_actions(policy_doc, 'TestPolicy', None)
+        assert len(findings) == 0  # Deny statements are safe
+
+    def test_deny_statement_with_wildcard_resource(self):
+        """Test that Deny statements with wildcard resources are not flagged."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Policy with Deny statement with wildcard resources (safe)
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Deny',
+                    'Action': 's3:*',
+                    'Resource': '*'
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_resources(policy_doc, 'TestPolicy')
+        assert len(findings) == 0  # Deny statements are safe
+
+    def test_action_as_list_with_wildcard(self):
+        """Test that Action field as list with wildcard is detected."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Policy with Action as list containing wildcard
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': ['s3:GetObject', '*', 's3:PutObject'],
+                    'Resource': '*'
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_actions(policy_doc, 'TestPolicy', None)
+        assert len(findings) > 0
+        assert any(f.severity == 'high' for f in findings)
+
+    def test_resource_as_list_with_wildcard(self):
+        """Test that Resource field as list with wildcard is detected."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Policy with Resource as list containing wildcard
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': 's3:*',
+                    'Resource': ['arn:aws:s3:::bucket1/*', '*']
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_resources(policy_doc, 'TestPolicy')
+        assert len(findings) > 0
+        assert any(f.severity == 'high' for f in findings)
+
+
+class TestAdminPolicyARNMatching:
+    """Tests for admin policy ARN suffix matching."""
+
+    def test_admin_policy_arn_administrator_access(self):
+        """Test admin policy detection via ARN suffix for AdministratorAccess."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Known admin policy by exact ARN suffix
+        arn = 'arn:aws:iam::123456789012:policy/AdministratorAccess'
+        assert engine._is_admin_policy('SomePolicy', arn) is True
+
+    def test_admin_policy_arn_power_user_access(self):
+        """Test admin policy detection via ARN suffix for PowerUserAccess."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Known admin policy by exact ARN suffix
+        arn = 'arn:aws:iam::123456789012:policy/PowerUserAccess'
+        assert engine._is_admin_policy('SomePolicy', arn) is True
+
+    def test_non_admin_policy_arn(self):
+        """Test that non-admin policy ARN is not exempt."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Non-admin policy
+        arn = 'arn:aws:iam::123456789012:policy/S3ReadOnlyPolicy'
+        assert engine._is_admin_policy('S3ReadOnlyPolicy', arn) is False
+
+    def test_wildcard_actions_with_admin_arn(self):
+        """Test wildcard action is exempted when admin policy detected via ARN."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Admin policy via ARN, with wildcard action
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': '*',
+                    'Resource': '*'
+                }
+            ]
+        }
+        arn = 'arn:aws:iam::123456789012:policy/AdministratorAccess'
+
+        findings = engine.check_wildcard_actions(policy_doc, 'SomePolicy', arn)
+        # Should be exempted (admin policy)
+        assert len(findings) == 0
+
+
+class TestWildcardResourceDetection:
+    """Tests for wildcard resource detection with privileged actions."""
+
+    def test_wildcard_resource_with_s3_wildcard(self):
+        """Test wildcard resource detection with s3:* action."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': 's3:*',
+                    'Resource': '*'
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_resources(policy_doc, 'S3Policy')
+        assert len(findings) > 0
+        assert findings[0].severity == 'high'
+        assert 's3:*' in findings[0].finding
+
+    def test_wildcard_resource_with_iam_wildcard(self):
+        """Test wildcard resource detection with iam:* action."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': 'iam:*',
+                    'Resource': '*'
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_resources(policy_doc, 'IAMPolicy')
+        assert len(findings) > 0
+        assert findings[0].severity == 'high'
+
+    def test_wildcard_resource_with_non_privileged_action(self):
+        """Test no finding when wildcard resource with non-privileged action."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': 's3:GetObject',  # Not privileged (needs Tier 2 match)
+                    'Resource': '*'
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_resources(policy_doc, 'S3ReadOnlyPolicy')
+        # Should NOT flag (s3:GetObject is not privileged per Tier 1, Tier 2 requires s3:* pattern match)
+        assert len(findings) == 0
+
+    def test_wildcard_resource_with_ec2_terminate(self):
+        """Test wildcard resource detection with ec2:TerminateInstances (Tier 1)."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': 'ec2:TerminateInstances',
+                    'Resource': '*'
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_resources(policy_doc, 'EC2Policy')
+        assert len(findings) > 0
+        assert findings[0].severity == 'high'
+
+    def test_wildcard_resource_with_ec2_wildcard_not_privileged(self):
+        """Test no finding for ec2:* with wildcard resource (NOT privileged)."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': 'ec2:*',
+                    'Resource': '*'
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_resources(policy_doc, 'EC2Policy')
+        # ec2:* is NOT in privileged actions (Tier 1 or Tier 2)
+        assert len(findings) == 0
+
+    def test_wildcard_resource_no_wildcard_action(self):
+        """Test no finding when wildcard resource but no privileged action."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': 'logs:CreateLogGroup',
+                    'Resource': '*'
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_resources(policy_doc, 'LogPolicy')
+        # logs:CreateLogGroup is not privileged
+        assert len(findings) == 0
+
+    def test_multiple_statements_one_with_finding(self):
+        """Test that findings are detected in policies with multiple statements."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': 'logs:CreateLogGroup',
+                    'Resource': 'arn:aws:logs:*:*:*'  # Specific resource
+                },
+                {
+                    'Effect': 'Allow',
+                    'Action': 's3:*',
+                    'Resource': '*'  # Wildcard with privileged action
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_resources(policy_doc, 'MixedPolicy')
+        assert len(findings) > 0
+        assert findings[0].severity == 'high'
+
+
+class TestEdgeCasesAndBoundaries:
+    """Tests for edge cases and boundary conditions."""
+
+    def test_empty_statement_list(self):
+        """Test policy with empty statement list."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': []
+        }
+
+        findings_actions = engine.check_wildcard_actions(policy_doc, 'EmptyPolicy', None)
+        findings_resources = engine.check_wildcard_resources(policy_doc, 'EmptyPolicy')
+
+        assert len(findings_actions) == 0
+        assert len(findings_resources) == 0
+
+    def test_missing_statement_field(self):
+        """Test policy without Statement field."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        policy_doc = {
+            'Version': '2012-10-17'
+            # No Statement field
+        }
+
+        findings_actions = engine.check_wildcard_actions(policy_doc, 'NoStatementPolicy', None)
+        findings_resources = engine.check_wildcard_resources(policy_doc, 'NoStatementPolicy')
+
+        assert len(findings_actions) == 0
+        assert len(findings_resources) == 0
+
+    def test_missing_effect_field(self):
+        """Test statement without Effect field (defaults to not Allow)."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    # Missing Effect field
+                    'Action': '*',
+                    'Resource': '*'
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_actions(policy_doc, 'NoEffectPolicy', None)
+        # Should not process statement without Effect='Allow'
+        assert len(findings) == 0
+
+    def test_kms_wildcard_in_tier2(self):
+        """Test kms:* is privileged (Tier 2)."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': 'kms:*',
+                    'Resource': '*'
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_resources(policy_doc, 'KMSPolicy')
+        assert len(findings) > 0
+        assert findings[0].severity == 'high'
+
+    def test_dynamodb_wildcard_in_tier2(self):
+        """Test dynamodb:* is privileged (Tier 2)."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': 'dynamodb:*',
+                    'Resource': '*'
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_resources(policy_doc, 'DynamoDBPolicy')
+        assert len(findings) > 0
+        assert findings[0].severity == 'high'
+
+    def test_no_resource_field(self):
+        """Test statement without Resource field."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': 's3:*'
+                    # Missing Resource field
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_resources(policy_doc, 'NoResourcePolicy')
+        # Should not flag (no Resource field means no wildcard to match)
+        assert len(findings) == 0
+
+    def test_empty_action_list(self):
+        """Test statement with empty Action list."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': [],
+                    'Resource': '*'
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_resources(policy_doc, 'EmptyActionPolicy')
+        # Should not flag (no privileged actions)
+        assert len(findings) == 0
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])
