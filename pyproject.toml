@@ -1,0 +1,15 @@
+[project]
+name = "aws-audit-skills"
+version = "0.1.0"
+description = "AWS audit skill pack — 4 independent Claude Code skills"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+
+# Each skill ships PEP 723 inline deps in its own .py module. This top-level
+# pyproject only exists to anchor the repo as a Python project for editor /
+# tooling discovery. Skill-specific deps stay in the per-skill module headers.
+dependencies = []
+
+[tool.pytest.ini_options]
+testpaths = ["skills"]
+python_files = ["test_*.py"]
