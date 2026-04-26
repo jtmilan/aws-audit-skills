@@ -8,6 +8,16 @@ __pycache__/
 # AWS audit skill local cache (e.g. Spamhaus DROP list, baselines)
 .cache/
 
+# Git worktrees for parallel development
+.worktrees/
+
+# Pipeline artifacts
+.artifacts/
+
+# Environment files
+.env
+.env.local
+
 # Editor
 .idea/
 .vscode/
