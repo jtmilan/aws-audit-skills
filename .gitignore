@@ -12,3 +12,12 @@ __pycache__/
 .idea/
 .vscode/
 .DS_Store
+
+# Environment and secrets
+.env
+.env.*
+
+# Development artifacts
+.artifacts/
+.worktrees/
+.agentfield_output.json
