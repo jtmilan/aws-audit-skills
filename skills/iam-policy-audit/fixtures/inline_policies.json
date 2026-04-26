@@ -1,0 +1,5 @@
+{
+  "LambdaExecutionRole": ["logging-policy"],
+  "S3AccessRole": [],
+  "AdminRole": []
+}

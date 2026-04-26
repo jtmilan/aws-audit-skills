@@ -212,7 +212,17 @@ class AWSClient:
             fixture_path = Path(__file__).parent / 'fixtures' / filename
             with open(fixture_path) as f:
                 data = json.load(f)
-                return data.get(key, [])
+                items = data.get(key, [])
+                # Parse datetime strings in CreateDate and UpdateDate fields
+                for item in items:
+                    for date_field in ['CreateDate', 'UpdateDate']:
+                        if date_field in item and isinstance(item[date_field], str):
+                            try:
+                                # Parse ISO format datetime string
+                                item[date_field] = datetime.fromisoformat(item[date_field])
+                            except (ValueError, AttributeError):
+                                pass
+                return items
         except (FileNotFoundError, json.JSONDecodeError):
             return []
 
