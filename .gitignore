@@ -4,11 +4,32 @@ __pycache__/
 .pytest_cache/
 .venv/
 *.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+.tox/
+.coverage
+htmlcov/
+*.cover
+.hypothesis/
 
 # AWS audit skill local cache (e.g. Spamhaus DROP list, baselines)
 .cache/
+
+# Pipeline and worktrees
+.artifacts/
+.worktrees/
+
+# Environment files
+.env
+.env.local
+*.env
 
 # Editor
 .idea/
 .vscode/
 .DS_Store
+
+# OS files
+Thumbs.db
