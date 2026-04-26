@@ -279,6 +279,107 @@ class TestOutputFormatter:
         assert 'Finding with \\| pipe' in output
         assert 'command \\| with pipes' in output
 
+    def test_output_formatter_multiple_pipes_escaped(self):
+        """Verify multiple pipe characters are escaped correctly."""
+        formatter = OutputFormatter()
+        finding = Finding(
+            resource='Role',
+            finding='Multiple | pipes | in | text',
+            severity='high',
+            fix_command='cmd | pipe1 | pipe2'
+        )
+        output = formatter.render_table([finding])
+
+        # All pipes should be escaped
+        assert output.count('\\|') == 5  # 3 in finding, 2 in fix_command
+        # Verify original finding has pipes (before escaping)
+        assert '|' in finding.finding
+
+    def test_output_formatter_header_and_separator(self):
+        """Verify correct header and separator rows."""
+        formatter = OutputFormatter()
+        finding = Finding('Role', 'Finding', 'high', 'fix')
+        output = formatter.render_table([finding])
+
+        lines = output.split('\n')
+        assert lines[0] == '| Resource | Finding | Severity | Fix Command |'
+        assert lines[1] == '|----------|---------|----------|------------|'
+
+    def test_output_formatter_case_insensitive_alphabetical_sort(self):
+        """Verify alphabetical sorting is case-insensitive."""
+        formatter = OutputFormatter()
+        findings = [
+            Finding('zebra-role', 'Low', 'low', 'fix'),
+            Finding('APPLE-ROLE', 'High', 'high', 'fix'),
+            Finding('Banana-Role', 'High', 'high', 'fix'),
+        ]
+        output = formatter.render_table(findings)
+        lines = output.split('\n')
+
+        # Should be sorted: APPLE (high), Banana (high), zebra (low)
+        assert 'APPLE-ROLE' in lines[2]
+        assert 'Banana-Role' in lines[3]
+        assert 'zebra-role' in lines[4]
+
+    def test_output_formatter_markdown_table_syntax(self):
+        """Verify output is valid markdown table syntax."""
+        formatter = OutputFormatter()
+        findings = [
+            Finding('Role1', 'Finding1', 'high', 'fix1'),
+            Finding('Role2', 'Finding2', 'med', 'fix2'),
+        ]
+        output = formatter.render_table(findings)
+        lines = output.split('\n')
+
+        # All lines should start and end with |
+        for line in lines:
+            assert line.startswith('|'), f"Line doesn't start with |: {line}"
+            assert line.endswith('|'), f"Line doesn't end with |: {line}"
+
+        # Each line should have 5 pipe characters (4 separators + 1 start + 1 end = 5, but split removes ends)
+        for line in lines:
+            pipe_count = line.count('|')
+            assert pipe_count == 5, f"Expected 5 pipes in line, got {pipe_count}: {line}"
+
+    def test_output_formatter_no_leading_trailing_newlines(self):
+        """Verify output has no embedded leading or trailing newlines."""
+        formatter = OutputFormatter()
+        finding = Finding('Role', 'Finding', 'high', 'fix')
+        output = formatter.render_table([finding])
+
+        # Output should not start or end with newline
+        assert not output.startswith('\n'), "Output starts with newline"
+        assert not output.endswith('\n'), "Output ends with newline"
+
+    def test_output_formatter_severity_order_comprehensive(self):
+        """Verify findings are sorted by severity in exact order."""
+        formatter = OutputFormatter()
+        findings = [
+            Finding('Role1', 'Low1', 'low', 'fix'),
+            Finding('Role2', 'Low2', 'low', 'fix'),
+            Finding('Role3', 'Med1', 'med', 'fix'),
+            Finding('Role4', 'Med2', 'med', 'fix'),
+            Finding('Role5', 'High1', 'high', 'fix'),
+            Finding('Role6', 'High2', 'high', 'fix'),
+        ]
+        output = formatter.render_table(findings)
+        lines = output.split('\n')
+
+        # Extract severity from each data row
+        severities = []
+        for i in range(2, len(lines)):  # Skip header and separator
+            line = lines[i]
+            if 'high' in line:
+                severities.append('high')
+            elif 'med' in line:
+                severities.append('med')
+            elif 'low' in line:
+                severities.append('low')
+
+        # All highs should come before meds, all meds before lows
+        expected = ['high', 'high', 'med', 'med', 'low', 'low']
+        assert severities == expected, f"Expected {expected}, got {severities}"
+
 
 # Integration-style tests with stubbed AWS calls
 class TestWildcardActionDetection:
