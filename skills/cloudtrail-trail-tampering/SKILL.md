@@ -36,6 +36,7 @@ The skill flags the following high-risk events:
 | Argument | Type | Default | Description |
 |----------|------|---------|-------------|
 | `--lookback-hours` | integer | 24 | Number of hours to look back for events |
+| `--account-id` | string | None | AWS account ID to scope events. Defaults to caller's account via STS. |
 | `--dry-run` | flag | false | Use fixture data instead of calling AWS API |
 
 ### Usage Examples
@@ -46,6 +47,12 @@ python3 detect.py
 
 # Check for tampering events in the last 48 hours
 python3 detect.py --lookback-hours 48
+
+# Check for tampering events with explicit account ID
+python3 detect.py --account-id 111111111111
+
+# Check for tampering events in a specific account over 72 hours
+python3 detect.py --account-id 111111111111 --lookback-hours 72
 
 # Run with fixture data (no AWS credentials required)
 python3 detect.py --dry-run
@@ -85,6 +92,6 @@ The skill outputs a markdown table with the following columns:
 ```markdown
 | event_time | principal | action | target_resource | severity |
 |------------|-----------|--------|-----------------|----------|
-| 2024-01-15T10:30:00+00:00 | arn:aws:iam::123456789012:user/malicious-user | DeleteTrail | audit-trail | high |
-| 2024-01-15T11:00:00+00:00 | arn:aws:iam::123456789012:user/another-user | StopLogging | main-trail | high |
+| 2024-01-15T10:30:00+00:00 | arn:aws:iam::<account-id>:user/malicious-user | DeleteTrail | audit-trail | high |
+| 2024-01-15T11:00:00+00:00 | arn:aws:iam::<account-id>:user/another-user | StopLogging | main-trail | high |
 ```
