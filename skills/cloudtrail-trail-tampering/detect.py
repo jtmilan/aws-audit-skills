@@ -52,7 +52,8 @@ DRY_RUN_FIXTURES: list[dict] = [
             "eventVersion": "1.08",
             "userIdentity": {
                 "type": "IAMUser",
-                "arn": "arn:aws:iam::123456789012:user/malicious-user",
+                "arn": f"arn:aws:iam::{FIXTURE_ACCOUNT_ID}:user/malicious-user",
+                "accountId": FIXTURE_ACCOUNT_ID,
                 "principalId": "AIDAEXAMPLE",
                 "userName": "malicious-user"
             },
@@ -72,7 +73,8 @@ DRY_RUN_FIXTURES: list[dict] = [
             "eventVersion": "1.08",
             "userIdentity": {
                 "type": "IAMUser",
-                "arn": "arn:aws:iam::123456789012:user/another-user"
+                "arn": f"arn:aws:iam::{FIXTURE_ACCOUNT_ID}:user/another-user",
+                "accountId": FIXTURE_ACCOUNT_ID
             },
             "requestParameters": {"name": "main-trail"}
         })
@@ -90,7 +92,8 @@ DRY_RUN_FIXTURES: list[dict] = [
             "eventVersion": "1.08",
             "userIdentity": {
                 "type": "IAMUser",
-                "arn": "arn:aws:iam::123456789012:user/attacker"
+                "arn": f"arn:aws:iam::{FIXTURE_ACCOUNT_ID}:user/attacker",
+                "accountId": FIXTURE_ACCOUNT_ID
             },
             "requestParameters": {"name": "prod-trail", "isLogging": False}
         })
@@ -108,7 +111,8 @@ DRY_RUN_FIXTURES: list[dict] = [
             "eventVersion": "1.08",
             "userIdentity": {
                 "type": "IAMUser",
-                "arn": "arn:aws:iam::123456789012:user/bucket-modifier"
+                "arn": f"arn:aws:iam::{FIXTURE_ACCOUNT_ID}:user/bucket-modifier",
+                "accountId": FIXTURE_ACCOUNT_ID
             },
             "requestParameters": {
                 "bucketName": "sensitive-logs-bucket",
@@ -162,6 +166,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     Returns:
         Namespace with:
             - lookback_hours: int (default 24)
+            - account_id: str | None (default None, triggers STS fallback)
             - dry_run: bool (default False)
     """
     parser = argparse.ArgumentParser(
@@ -172,6 +177,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=24,
         help="Hours to look back for events (default: 24)",
+    )
+    parser.add_argument(
+        "--account-id",
+        type=str,
+        default=None,
+        help="AWS account ID to scope events. Defaults to caller's account via STS.",
     )
     parser.add_argument(
         "--dry-run",
@@ -400,18 +411,21 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_run:
         events = DRY_RUN_FIXTURES
+        account_id = FIXTURE_ACCOUNT_ID
     else:
         try:
             import boto3
             import botocore.exceptions
 
+            sts_client = boto3.client("sts")
+            account_id = resolve_account_id(sts_client, args.account_id)
             client = boto3.client("cloudtrail")
             events = fetch_events(client, args.lookback_hours)
         except botocore.exceptions.ClientError as e:
             print(f"Error: {e}", file=sys.stderr)
             return 1
 
-    tampering_events = [e for e in events if is_tampering_event(e)]
+    tampering_events = [e for e in events if is_tampering_event(e, account_id)]
     findings = [extract_finding(e) for e in tampering_events]
 
     table = format_markdown_table(findings)
