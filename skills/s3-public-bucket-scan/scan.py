@@ -23,6 +23,15 @@ import json
 import sys
 from datetime import datetime
 
+try:
+    import boto3
+    from botocore.exceptions import ClientError, NoCredentialsError
+except ImportError:
+    # boto3 not available - only dry-run mode will work
+    boto3 = None
+    ClientError = Exception
+    NoCredentialsError = Exception
+
 
 # ============================================================================
 # DRY-RUN FIXTURES
@@ -166,13 +175,19 @@ def check_bucket_acl(bucket_name: str, s3_client=None, dry_run: bool = False) ->
     Returns: ["Grant {permission} to {AllUsers|AuthenticatedUsers}", ...]
     """
     if dry_run:
-        fixture = DRY_RUN_FIXTURES['get_bucket_acl'].get(bucket_name, {'Grants': []})
+        acl_response = DRY_RUN_FIXTURES['get_bucket_acl'].get(bucket_name, {'Grants': []})
     else:
-        # Real implementation will be in issue-03
-        return []
+        # Call real AWS API
+        try:
+            acl_response = s3_client.get_bucket_acl(Bucket=bucket_name)
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code in ('AccessDenied', 'NoSuchBucket'):
+                return []
+            raise
 
     exposure_vectors = []
-    for grant in fixture.get('Grants', []):
+    for grant in acl_response.get('Grants', []):
         grantee = grant.get('Grantee', {})
         if grantee.get('Type') == 'Group':
             uri = grantee.get('URI', '')
@@ -191,17 +206,25 @@ def check_bucket_policy(bucket_name: str, s3_client=None, dry_run: bool = False)
     Returns: ["Statement {idx}: Principal='*' without aws:SourceIp restriction", ...]
     """
     if dry_run:
-        fixture = DRY_RUN_FIXTURES['get_bucket_policy'].get(bucket_name)
-        if fixture is None:
+        policy_fixture = DRY_RUN_FIXTURES['get_bucket_policy'].get(bucket_name)
+        if policy_fixture is None:
             # NoSuchBucketPolicy
             return []
+        policy_doc = policy_fixture
     else:
-        # Real implementation will be in issue-03
-        return []
+        # Call real AWS API
+        try:
+            policy_response = s3_client.get_bucket_policy(Bucket=bucket_name)
+            policy_doc = json.loads(policy_response['Policy'])
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code in ('NoSuchBucketPolicy', 'AccessDenied'):
+                return []
+            raise
 
-    # Fixture contains policy dict
+    # Parse policy document
     exposure_vectors = []
-    for idx, statement in enumerate(fixture.get('Statement', [])):
+    for idx, statement in enumerate(policy_doc.get('Statement', [])):
         if statement.get('Effect') != 'Allow':
             continue
 
@@ -216,6 +239,7 @@ def check_bucket_policy(bucket_name: str, s3_client=None, dry_run: bool = False)
         if not is_public_principal:
             continue
 
+        # CRITICAL: Use 'aws:SourceIp' in str(condition) per Blocker 4 Resolution
         condition = statement.get('Condition', {})
         has_ip_restriction = 'aws:SourceIp' in str(condition)
 
@@ -234,14 +258,21 @@ def check_public_access_block(bucket_name: str, s3_client=None, dry_run: bool = 
     Returns: ["{SettingName}=false", ...] for disabled settings
     """
     if dry_run:
-        fixture = DRY_RUN_FIXTURES['get_public_access_block'].get(bucket_name)
-        if fixture is None:
+        bpa_fixture = DRY_RUN_FIXTURES['get_public_access_block'].get(bucket_name)
+        if bpa_fixture is None:
             # NoSuchPublicAccessBlockConfiguration
             return []
-        config = fixture.get('PublicAccessBlockConfiguration', {})
+        config = bpa_fixture.get('PublicAccessBlockConfiguration', {})
     else:
-        # Real implementation will be in issue-03
-        return []
+        # Call real AWS API
+        try:
+            bpa_response = s3_client.get_public_access_block(Bucket=bucket_name)
+            config = bpa_response.get('PublicAccessBlockConfiguration', {})
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code in ('NoSuchPublicAccessBlockConfiguration', 'AccessDenied'):
+                return []
+            raise
 
     exposure_vectors = []
     settings = ['BlockPublicAcls', 'IgnorePublicAcls', 'BlockPublicPolicy', 'RestrictPublicBuckets']
@@ -258,19 +289,43 @@ def check_object_acls(bucket_name: str, s3_client=None, dry_run: bool = False, m
     Sample object ACLs.
 
     Returns: list of dicts with 'bucket', 'key', 'acl', 'public_grants' fields
+
+    CRITICAL: Normalizes boto3's capital-K 'Key' to lowercase 'key' per Blocker 2 Resolution
     """
     if dry_run:
-        list_fixture = DRY_RUN_FIXTURES['list_objects_v2'].get(bucket_name, {'Contents': []})
+        list_response = DRY_RUN_FIXTURES['list_objects_v2'].get(bucket_name, {'Contents': []})
     else:
-        # Real implementation will be in issue-03
-        return []
+        # Call real AWS API
+        try:
+            list_response = s3_client.list_objects_v2(
+                Bucket=bucket_name,
+                MaxKeys=max_objects
+            )
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code in ('NoSuchBucket', 'AccessDenied'):
+                return []
+            raise
 
     objects_data = []
-    for obj in list_fixture.get('Contents', [])[:max_objects]:
+    for obj in list_response.get('Contents', [])[:max_objects]:
         obj_key = obj['Key']  # boto3 uses capital K
 
-        # Get object ACL from fixtures
-        acl_response = DRY_RUN_FIXTURES['get_object_acl'].get((bucket_name, obj_key), {'Grants': []})
+        # Get object ACL
+        if dry_run:
+            acl_response = DRY_RUN_FIXTURES['get_object_acl'].get((bucket_name, obj_key), {'Grants': []})
+        else:
+            try:
+                acl_response = s3_client.get_object_acl(
+                    Bucket=bucket_name,
+                    Key=obj_key
+                )
+            except ClientError as e:
+                error_code = e.response['Error']['Code']
+                if error_code in ('AccessDenied', 'NoSuchKey'):
+                    # Skip object if no permission to read ACL
+                    continue
+                raise
 
         # Detect public grants
         public_grants = []
@@ -282,11 +337,12 @@ def check_object_acls(bucket_name: str, s3_client=None, dry_run: bool = False, m
                     public_grants.append(grant['Permission'])
 
         if public_grants:  # Only include objects with public grants
+            # CRITICAL: Normalize capital-K 'Key' to lowercase 'key' per Blocker 2 Resolution
             objects_data.append({
-                'bucket': bucket_name,
-                'key': obj_key,
-                'acl': acl_response,
-                'public_grants': public_grants
+                'bucket': bucket_name,      # Explicitly add bucket name
+                'key': obj_key,              # Normalized to lowercase 'key'
+                'acl': acl_response,         # Full ACL response for reference
+                'public_grants': public_grants  # Derived field
             })
 
     return objects_data
@@ -299,15 +355,23 @@ def is_intentionally_public(bucket_name: str, s3_client=None, dry_run: bool = Fa
     Returns: True if tag Key='public' Value='true' exists (case-sensitive)
     """
     if dry_run:
-        fixture = DRY_RUN_FIXTURES['get_bucket_tagging'].get(bucket_name)
-        if fixture is None:
+        tagging_fixture = DRY_RUN_FIXTURES['get_bucket_tagging'].get(bucket_name)
+        if tagging_fixture is None:
             # NoSuchTagSet
             return False
-        tag_set = fixture.get('TagSet', [])
+        tag_set = tagging_fixture.get('TagSet', [])
     else:
-        # Real implementation will be in issue-03
-        return False
+        # Call real AWS API
+        try:
+            tagging_response = s3_client.get_bucket_tagging(Bucket=bucket_name)
+            tag_set = tagging_response.get('TagSet', [])
+        except ClientError as e:
+            error_code = e.response['Error']['Code']
+            if error_code in ('NoSuchTagSet', 'AccessDenied'):
+                return False
+            raise
 
+    # Check for exact case-sensitive match: Key='public' Value='true'
     for tag in tag_set:
         if tag.get('Key') == 'public' and tag.get('Value') == 'true':
             return True
