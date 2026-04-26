@@ -165,6 +165,174 @@ def parse_args() -> argparse.Namespace:
 
 
 # ============================================================================
+# AWS CLIENT MANAGEMENT
+# ============================================================================
+
+def get_clients(region: str | None, dry_run: bool):
+    """
+    Create boto3 clients for S3 and EC2.
+
+    Args:
+        region: Target region string, 'all', or None (default)
+        dry_run: If True, return None clients (dry-run mode bypasses AWS)
+
+    Returns: (s3_client, ec2_client) tuple
+
+    CRITICAL DESIGN NOTES:
+    - S3 client is ALWAYS created in us-east-1 because list_buckets() is a global operation
+    - EC2 client is ALWAYS created in us-east-1 for describe_regions() (also global)
+    - You CAN call get_bucket_acl(), get_bucket_policy(), etc. on buckets in ANY region
+      from an S3 client created in ANY region (S3 control plane is region-aware)
+    - We create one S3 client and reuse it for all operations (no per-region clients needed)
+    - NO custom retry configuration per Blocker 5 Resolution
+    """
+    if dry_run:
+        return (None, None)
+
+    # Create S3 client in us-east-1 (list_buckets is global, other ops are region-aware)
+    s3_client = boto3.client('s3', region_name='us-east-1')
+
+    # Create EC2 client in us-east-1 (describe_regions is global)
+    ec2_client = boto3.client('ec2', region_name='us-east-1')
+
+    return (s3_client, ec2_client)
+
+
+# ============================================================================
+# BUCKET ENUMERATION
+# ============================================================================
+
+def enumerate_buckets(s3_client, ec2_client, target_region: str | None, dry_run: bool = False) -> list[dict]:
+    """
+    List all S3 buckets, optionally filtered by region.
+
+    Args:
+        s3_client: boto3 S3 client (created in us-east-1 for global list_buckets call)
+        ec2_client: boto3 EC2 client (only used when target_region == 'all')
+        target_region: None (default region), 'all', or specific region string
+        dry_run: If True, use fixture data
+
+    Returns: list[dict] where each dict has:
+        - 'Name': str (bucket name, from boto3 response)
+        - 'Region': str (bucket region, from get_bucket_location)
+    """
+    if dry_run:
+        # Use fixture data
+        buckets_fixture = DRY_RUN_FIXTURES['list_buckets']
+        buckets = []
+        for bucket in buckets_fixture['Buckets']:
+            bucket_name = bucket['Name']
+            location_response = DRY_RUN_FIXTURES['get_bucket_location'].get(bucket_name, {'LocationConstraint': None})
+            bucket_region = location_response.get('LocationConstraint')
+
+            # CRITICAL: AWS API returns None for us-east-1 buckets
+            if bucket_region is None:
+                bucket_region = 'us-east-1'
+
+            buckets.append({
+                'Name': bucket_name,
+                'Region': bucket_region
+            })
+        return buckets
+
+    # Step 1: Determine target region set
+    if target_region == 'all':
+        # Enumerate all enabled regions via EC2 API
+        regions_response = ec2_client.describe_regions()
+        target_regions = {r['RegionName'] for r in regions_response['Regions']}
+    elif target_region is None:
+        # Use default region (no filtering)
+        target_regions = None  # Sentinel: include all buckets
+    else:
+        # Specific region
+        target_regions = {target_region}
+
+    # Step 2: List all buckets (global operation, no region filter in API)
+    list_response = s3_client.list_buckets()
+    buckets = []
+
+    for bucket in list_response.get('Buckets', []):
+        bucket_name = bucket['Name']
+
+        # Step 3: Get bucket region
+        try:
+            location_response = s3_client.get_bucket_location(Bucket=bucket_name)
+            bucket_region = location_response.get('LocationConstraint')
+
+            # CRITICAL: AWS API returns None for us-east-1 buckets
+            if bucket_region is None:
+                bucket_region = 'us-east-1'
+
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'AccessDenied':
+                # Skip bucket if no permission to get location
+                continue
+            raise
+
+        # Step 4: Filter by target region(s)
+        if target_regions is None or bucket_region in target_regions:
+            buckets.append({
+                'Name': bucket_name,
+                'Region': bucket_region
+            })
+
+    return buckets
+
+
+# ============================================================================
+# SCANNING ORCHESTRATION
+# ============================================================================
+
+def scan_bucket(s3_client, bucket_name: str, bucket_region: str, include_empty: bool, dry_run: bool = False) -> dict | None:
+    """
+    Scan a single bucket for public exposure.
+
+    Args:
+        s3_client: boto3 S3 client
+        bucket_name: Bucket name to scan
+        bucket_region: Bucket region (for reporting)
+        include_empty: If False, return None for buckets with 0 objects
+        dry_run: If True, use fixture data
+
+    Returns: dict with scan results, or None if bucket should be skipped
+    """
+    # Check object count FIRST (before expensive ACL/policy calls)
+    try:
+        if dry_run:
+            objects_response = DRY_RUN_FIXTURES['list_objects_v2'].get(bucket_name, {'Contents': []})
+        else:
+            objects_response = s3_client.list_objects_v2(Bucket=bucket_name, MaxKeys=1)
+
+        object_count = len(objects_response.get('Contents', []))
+
+        # CRITICAL: Apply empty bucket filter HERE per Issue 8 Resolution
+        if not include_empty and object_count == 0:
+            return None  # Skip this bucket entirely
+
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'AccessDenied':
+            return None
+        raise
+
+    # Bucket has objects (or include_empty=True), proceed with full scan
+    acl_vectors = check_bucket_acl(bucket_name, s3_client, dry_run)
+    policy_vectors = check_bucket_policy(bucket_name, s3_client, dry_run)
+    bpa_vectors = check_public_access_block(bucket_name, s3_client, dry_run)
+    object_acls = check_object_acls(bucket_name, s3_client, dry_run, max_objects=10)
+    is_intentional = is_intentionally_public(bucket_name, s3_client, dry_run)
+
+    return {
+        'bucket_name': bucket_name,
+        'bucket_region': bucket_region,
+        'acl_vectors': acl_vectors,
+        'policy_vectors': policy_vectors,
+        'bpa_vectors': bpa_vectors,
+        'object_acls': object_acls,
+        'is_intentional': is_intentional
+    }
+
+
+# ============================================================================
 # DETECTION FUNCTIONS (STUB IMPLEMENTATIONS)
 # ============================================================================
 
@@ -514,42 +682,34 @@ def main() -> int:
     try:
         args = parse_args()
 
-        if args.dry_run:
-            # Dry-run mode: use fixture data
-            scan_results = []
+        # Step 1: Create AWS clients (or None for dry-run)
+        s3_client, ec2_client = get_clients(args.region, args.dry_run)
 
-            # Get list of buckets from fixtures
-            buckets_fixture = DRY_RUN_FIXTURES['list_buckets']
-            for bucket in buckets_fixture['Buckets']:
-                bucket_name = bucket['Name']
+        # Step 2: Enumerate buckets (with region filtering)
+        buckets = enumerate_buckets(s3_client, ec2_client, args.region, args.dry_run)
 
-                # Scan each bucket using stub functions
-                acl_vectors = check_bucket_acl(bucket_name, dry_run=True)
-                policy_vectors = check_bucket_policy(bucket_name, dry_run=True)
-                bpa_vectors = check_public_access_block(bucket_name, dry_run=True)
-                object_acls = check_object_acls(bucket_name, dry_run=True)
-                is_intentional = is_intentionally_public(bucket_name, dry_run=True)
+        # Step 3: Scan each bucket
+        scan_results = []
+        for bucket in buckets:
+            bucket_name = bucket['Name']
+            bucket_region = bucket['Region']
 
-                # Build scan result
-                scan_results.append({
-                    'bucket_name': bucket_name,
-                    'acl_vectors': acl_vectors,
-                    'policy_vectors': policy_vectors,
-                    'bpa_vectors': bpa_vectors,
-                    'object_acls': object_acls,
-                    'is_intentional': is_intentional
-                })
+            # Scan bucket (may return None if empty and include_empty=False)
+            result = scan_bucket(s3_client, bucket_name, bucket_region, args.include_empty, args.dry_run)
 
-            # Generate and print report
-            report = format_report(scan_results, args)
-            print(report)
-        else:
-            # Real AWS mode: will be implemented in issue-03 and issue-04
-            # For now, just inform the user
-            sys.stderr.write("Error: AWS integration not yet implemented. Use --dry-run for testing.\n")
-            return 1
+            if result is not None:
+                scan_results.append(result)
+
+        # Step 4: Generate and print report
+        report = format_report(scan_results, args)
+        print(report)
 
         return 0
+
+    except NoCredentialsError:
+        sys.stderr.write("Error: AWS credentials not configured.\n")
+        sys.stderr.write("Configure credentials via AWS CLI, environment variables, or IAM role.\n")
+        return 1
 
     except Exception as e:
         sys.stderr.write(f"Error: {str(e)}\n")
