@@ -1,0 +1,379 @@
+"""
+Test suite for the IAM Policy Audit skill.
+
+Uses botocore.stub.Stubber for offline testing without AWS credentials.
+"""
+
+import json
+import pytest
+from datetime import datetime, timedelta
+from botocore.stub import Stubber
+
+import boto3
+from audit import Finding, AWSClient, AuditEngine, OutputFormatter
+
+
+class TestFindingDataclass:
+    """Tests for the Finding dataclass."""
+
+    def test_finding_instantiation(self):
+        """Verify Finding can be instantiated with all fields."""
+        finding = Finding(
+            resource='TestRole',
+            finding='Test finding description',
+            severity='high',
+            fix_command='test command'
+        )
+
+        assert finding.resource == 'TestRole'
+        assert finding.finding == 'Test finding description'
+        assert finding.severity == 'high'
+        assert finding.fix_command == 'test command'
+
+    def test_finding_all_severity_levels(self):
+        """Verify Finding accepts all severity levels."""
+        for severity in ['low', 'med', 'high']:
+            finding = Finding(
+                resource='TestRole',
+                finding='Test finding',
+                severity=severity,
+                fix_command='test'
+            )
+            assert finding.severity == severity
+
+    def test_finding_lt_sorting_by_severity(self):
+        """Test __lt__ method sorts by severity (high → med → low)."""
+        high_finding = Finding(
+            resource='ZebraRole',
+            finding='High severity',
+            severity='high',
+            fix_command='fix'
+        )
+        med_finding = Finding(
+            resource='AppleRole',
+            finding='Med severity',
+            severity='med',
+            fix_command='fix'
+        )
+        low_finding = Finding(
+            resource='AppleRole',
+            finding='Low severity',
+            severity='low',
+            fix_command='fix'
+        )
+
+        # Verify sorting order: high < med < low
+        assert high_finding < med_finding
+        assert med_finding < low_finding
+        assert high_finding < low_finding
+
+    def test_finding_lt_sorting_by_resource_alphabetically(self):
+        """Test __lt__ method sorts alphabetically by resource when severity is same."""
+        finding_a = Finding(
+            resource='AppleRole',
+            finding='Finding',
+            severity='high',
+            fix_command='fix'
+        )
+        finding_b = Finding(
+            resource='BananaRole',
+            finding='Finding',
+            severity='high',
+            fix_command='fix'
+        )
+        finding_z = Finding(
+            resource='ZebraRole',
+            finding='Finding',
+            severity='high',
+            fix_command='fix'
+        )
+
+        # Same severity, should sort alphabetically by resource
+        assert finding_a < finding_b
+        assert finding_b < finding_z
+
+    def test_finding_lt_case_insensitive_resource_sorting(self):
+        """Test __lt__ method sorts resource names case-insensitively."""
+        finding_lower = Finding(
+            resource='appleRole',
+            finding='Finding',
+            severity='high',
+            fix_command='fix'
+        )
+        finding_upper = Finding(
+            resource='AppleRole',
+            finding='Finding',
+            severity='high',
+            fix_command='fix'
+        )
+
+        # Case-insensitive comparison (both represent same resource)
+        assert not (finding_lower < finding_upper)
+        assert not (finding_upper < finding_lower)
+
+    def test_finding_sorting_combined(self):
+        """Test sorting with mixed severities and resources."""
+        findings = [
+            Finding('ZebraRole', 'Low severity finding', 'low', 'fix'),
+            Finding('AppleRole', 'High severity finding', 'high', 'fix'),
+            Finding('BananaRole', 'High severity finding', 'high', 'fix'),
+            Finding('AppleRole', 'Med severity finding', 'med', 'fix'),
+        ]
+
+        sorted_findings = sorted(findings)
+
+        # Expected order: high severities first (Apple, Banana), then med (Apple), then low (Zebra)
+        assert sorted_findings[0].severity == 'high'
+        assert sorted_findings[0].resource == 'AppleRole'
+
+        assert sorted_findings[1].severity == 'high'
+        assert sorted_findings[1].resource == 'BananaRole'
+
+        assert sorted_findings[2].severity == 'med'
+        assert sorted_findings[2].resource == 'AppleRole'
+
+        assert sorted_findings[3].severity == 'low'
+        assert sorted_findings[3].resource == 'ZebraRole'
+
+
+class TestAWSClient:
+    """Tests for AWSClient class."""
+
+    def test_aws_client_dry_run_mode(self):
+        """Verify AWSClient can be initialized in dry-run mode."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        assert client.dry_run is True
+        assert client.account_id == '123456789012'
+
+    def test_aws_client_real_mode(self):
+        """Verify AWSClient can be initialized in real mode."""
+        client = AWSClient(account_id='123456789012', dry_run=False)
+        assert client.dry_run is False
+        assert client.iam is not None
+
+
+class TestAuditEngine:
+    """Tests for AuditEngine class."""
+
+    def test_audit_engine_initialization(self):
+        """Verify AuditEngine can be initialized."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+        assert engine.client is client
+
+    def test_privileged_action_matching_tier1(self):
+        """Test Tier 1 exact match for privileged actions."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Tier 1 exact matches
+        assert engine._is_privileged_action('s3:*') is True
+        assert engine._is_privileged_action('iam:*') is True
+        assert engine._is_privileged_action('ec2:TerminateInstances') is True
+        assert engine._is_privileged_action('kms:*') is True
+        assert engine._is_privileged_action('dynamodb:*') is True
+
+    def test_privileged_action_matching_tier2(self):
+        """Test Tier 2 service wildcard match for privileged actions.
+
+        Tier 2 matches actions ending with :* where service is in TIER2_SERVICES.
+        """
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Tier 2 matches: these are NOT tier 1 exact matches, but the wildcard
+        # action s3:*, iam:*, kms:*, dynamodb:* would be in Tier 1.
+        # For individual actions like s3:GetObject, they are NOT privileged
+        # unless they match a service wildcard pattern that ends with :*
+        # The Tier 2 logic checks if action ends with :* and service is in list
+        assert engine._is_privileged_action('s3:*') is True  # Tier 1 + Tier 2
+        assert engine._is_privileged_action('iam:*') is True  # Tier 1 + Tier 2
+        assert engine._is_privileged_action('kms:*') is True  # Tier 1 + Tier 2
+        assert engine._is_privileged_action('dynamodb:*') is True  # Tier 1 + Tier 2
+
+    def test_privileged_action_ec2_not_wildcard(self):
+        """Verify ec2:* is NOT privileged (only ec2:TerminateInstances is)."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # ec2:* is NOT privileged
+        assert engine._is_privileged_action('ec2:*') is False
+
+        # ec2:TerminateInstances IS privileged
+        assert engine._is_privileged_action('ec2:TerminateInstances') is True
+
+        # Other ec2 actions are NOT privileged
+        assert engine._is_privileged_action('ec2:DescribeInstances') is False
+
+    def test_admin_policy_case_insensitive(self):
+        """Test admin policy detection is case-insensitive."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Case-insensitive substring "admin"
+        assert engine._is_admin_policy('AdminPolicy') is True
+        assert engine._is_admin_policy('admin-policy') is True
+        assert engine._is_admin_policy('ADMIN-PROD') is True
+        assert engine._is_admin_policy('CustomAdminPolicy') is True
+
+        # Non-admin policy
+        assert engine._is_admin_policy('S3ReadOnly') is False
+
+
+class TestOutputFormatter:
+    """Tests for OutputFormatter class."""
+
+    def test_empty_findings_output(self):
+        """Verify empty findings list produces expected message."""
+        formatter = OutputFormatter()
+        output = formatter.render_table([])
+        assert output == '## No IAM Policy Issues Found'
+
+    def test_single_finding_output(self):
+        """Verify single finding produces markdown table."""
+        formatter = OutputFormatter()
+        finding = Finding(
+            resource='TestRole',
+            finding='Test finding',
+            severity='high',
+            fix_command='fix this'
+        )
+        output = formatter.render_table([finding])
+
+        # Should contain table header and one row
+        assert '| Resource | Finding | Severity | Fix Command |' in output
+        assert '|----------|---------|----------|------------|' in output
+        assert '| TestRole | Test finding | high | fix this |' in output
+
+    def test_multiple_findings_sorted(self):
+        """Verify multiple findings are sorted correctly."""
+        formatter = OutputFormatter()
+        findings = [
+            Finding('ZebraRole', 'Low finding', 'low', 'fix'),
+            Finding('AppleRole', 'High finding', 'high', 'fix'),
+            Finding('AppleRole', 'Med finding', 'med', 'fix'),
+        ]
+        output = formatter.render_table(findings)
+
+        lines = output.split('\n')
+        # Should have header, separator, and 3 data rows
+        assert len(lines) == 5
+
+        # Verify order: high (Apple), med (Apple), low (Zebra)
+        assert 'AppleRole' in lines[2] and 'high' in lines[2]
+        assert 'AppleRole' in lines[3] and 'med' in lines[3]
+        assert 'ZebraRole' in lines[4] and 'low' in lines[4]
+
+    def test_pipe_character_escaping(self):
+        """Verify pipe characters in findings are escaped."""
+        formatter = OutputFormatter()
+        finding = Finding(
+            resource='TestRole',
+            finding='Finding with | pipe',
+            severity='high',
+            fix_command='command | with pipes'
+        )
+        output = formatter.render_table([finding])
+
+        # Pipes should be escaped with backslash
+        assert 'Finding with \\| pipe' in output
+        assert 'command \\| with pipes' in output
+
+
+# Integration-style tests with stubbed AWS calls
+class TestWildcardActionDetection:
+    """Tests for wildcard action detection."""
+
+    def test_wildcard_action_detection(self):
+        """Test wildcard action detection with non-admin policy."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Policy with wildcard action
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': '*',
+                    'Resource': '*'
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_actions(policy_doc, 'TestPolicy', None)
+
+        assert len(findings) > 0
+        assert any(f.severity == 'high' and 'wildcard action' in f.finding.lower() for f in findings)
+
+    def test_wildcard_action_admin_policy_exempted(self):
+        """Test wildcard action is exempted for admin policies."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Admin policy with wildcard action (should be exempted)
+        policy_doc = {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Effect': 'Allow',
+                    'Action': '*',
+                    'Resource': '*'
+                }
+            ]
+        }
+
+        findings = engine.check_wildcard_actions(policy_doc, 'AdminPolicy', None)
+
+        # Should be empty (admin policy exempted)
+        assert len(findings) == 0
+
+
+class TestInlinePolicyDetection:
+    """Tests for inline policy detection."""
+
+    def test_inline_policy_flagging(self):
+        """Test inline policies are flagged."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Mock list_role_policies to return inline policies
+        client.list_role_policies = lambda role_name: ['inline-policy-1', 'inline-policy-2']
+
+        findings = engine.check_inline_policies('TestRole')
+
+        assert len(findings) == 2
+        assert all(f.severity == 'med' for f in findings)
+        assert all(f.resource == 'TestRole' for f in findings)
+
+
+class TestStaleRoleDetection:
+    """Tests for stale role detection."""
+
+    def test_stale_role_detection(self):
+        """Test stale role detection (created >90 days ago)."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Role created 95 days ago
+        old_date = datetime.utcnow() - timedelta(days=95)
+        findings = engine.check_stale_roles('OldRole', old_date)
+
+        assert len(findings) == 1
+        assert findings[0].severity == 'low'
+        assert 'created' in findings[0].finding.lower() or 'stale' in findings[0].finding.lower()
+
+    def test_recent_role_not_flagged(self):
+        """Test recent role is not flagged as stale."""
+        client = AWSClient(account_id='123456789012', dry_run=True)
+        engine = AuditEngine(client)
+
+        # Role created 30 days ago
+        recent_date = datetime.utcnow() - timedelta(days=30)
+        findings = engine.check_stale_roles('RecentRole', recent_date)
+
+        assert len(findings) == 0
+
+
+if __name__ == '__main__':
+    pytest.main([__file__, '-v'])
