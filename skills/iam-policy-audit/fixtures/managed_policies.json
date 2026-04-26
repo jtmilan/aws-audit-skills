@@ -1,0 +1,40 @@
+{
+  "Policies": [
+    {
+      "PolicyName": "CustomS3Policy",
+      "PolicyId": "ANPACKCEVSQ6C2EXAMPLE",
+      "Arn": "arn:aws:iam::999999999999:policy/CustomS3Policy",
+      "Path": "/",
+      "DefaultVersionId": "v1",
+      "AttachmentCount": 1,
+      "PermissionsBoundaryUsageCount": 0,
+      "IsAttachable": true,
+      "CreateDate": "2024-02-01T12:00:00",
+      "UpdateDate": "2024-02-01T12:00:00"
+    },
+    {
+      "PolicyName": "WildcardPolicy",
+      "PolicyId": "ANPACKCEVSQ6C2EXAMPLE2",
+      "Arn": "arn:aws:iam::999999999999:policy/WildcardPolicy",
+      "Path": "/",
+      "DefaultVersionId": "v1",
+      "AttachmentCount": 0,
+      "PermissionsBoundaryUsageCount": 0,
+      "IsAttachable": true,
+      "CreateDate": "2024-03-01T12:00:00",
+      "UpdateDate": "2024-03-01T12:00:00"
+    },
+    {
+      "PolicyName": "AdministratorAccess",
+      "PolicyId": "ANPACKCEVSQ6C2EXAMPLE3",
+      "Arn": "arn:aws:iam::999999999999:policy/AdministratorAccess",
+      "Path": "/",
+      "DefaultVersionId": "v1",
+      "AttachmentCount": 1,
+      "PermissionsBoundaryUsageCount": 0,
+      "IsAttachable": true,
+      "CreateDate": "2024-01-01T12:00:00",
+      "UpdateDate": "2024-01-01T12:00:00"
+    }
+  ]
+}
