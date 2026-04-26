@@ -411,7 +411,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.dry_run:
         events = DRY_RUN_FIXTURES
-        account_id = FIXTURE_ACCOUNT_ID
+        # If explicit --account-id provided, use it; otherwise use fixture placeholder
+        account_id = args.account_id if args.account_id is not None else FIXTURE_ACCOUNT_ID
     else:
         try:
             import boto3
